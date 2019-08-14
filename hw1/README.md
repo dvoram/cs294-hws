@@ -1,11 +1,26 @@
 # CS294-112 HW 1: Imitation Learning
 
+## Prerequisities on Ubuntu 18.04
+
+```bash
+sudo apt install patchelf
+sudo apt install libosmesa6-dev libgl1-mesa-glx libglfw3 libglew-dev
+```
+
+And add the following variables to /etc/environment (or set these manually for each shell).
+
+```
+LD_LIBRARY_PATH="/home/michaldvorak/.mujoco/mjpro150/bin"
+LD_PRELOAD="/usr/lib/x86_64-linux-gnu/libGLEW.so"
+```
+
 Dependencies:
  * Python **3.5**
  * Numpy version **1.14.5**
  * TensorFlow version **1.10.5**
  * MuJoCo version **1.50** and mujoco-py **1.50.1.56**
  * OpenAI Gym version **0.10.5**
+
 
 Once Python **3.5** is installed, you can install the remaining dependencies using `pip install -r requirements.txt`.
 
