@@ -70,6 +70,7 @@ def setup_logger(logdir, locals_):
 # Policy Gradient
 # ============================================================================================#
 
+# noinspection PyAttributeOutsideInit
 class Agent(object):
     def __init__(self, computation_graph_args, sample_trajectory_args, estimate_return_args):
         super(Agent, self).__init__()
@@ -235,9 +236,8 @@ class Agent(object):
             return tf.nn.sparse_softmax_cross_entropy_with_logits(labels=sy_ac_na, logits=sy_logits_na)
         else:
             sy_mean, sy_logstd = policy_parameters
-            # https://en.wikipedia.org/wiki/Multivariate_normal_distribution
-            # Also https://www.tensorflow.org/api_docs/python/tf/distributions/Normal could be used.
-            # The normalization coefficient is omitted - is this correct?
+            # Also https://www.tensorflow.org/api_docs/python/tf/distributions/Normal could probably be used.
+            # TODO: The normalization coefficient is omitted - is this correct?
             return 0.5 * tf.reduce_sum(tf.square((sy_ac_na - sy_mean) / tf.exp(sy_logstd)), axis=1)
 
     def build_computation_graph(self):
@@ -289,16 +289,14 @@ class Agent(object):
         # neural network baseline. These will be used to fit the neural network baseline. 
         # ========================================================================================#
         if self.nn_baseline:
-            raise NotImplementedError
             self.baseline_prediction = tf.squeeze(build_mlp(
                 self.sy_ob_no,
                 1,
                 "nn_baseline",
                 n_layers=self.n_layers,
                 size=self.size))
-            # YOUR_CODE_HERE
-            self.sy_target_n = None
-            baseline_loss = None
+            self.sy_target_n = tf.placeholder(shape=(None,), dtype=tf.float32)
+            baseline_loss = tf.losses.mean_squared_error(labels=self.sy_target_n, predictions=self.baseline_prediction)
             self.baseline_update_op = tf.train.AdamOptimizer(self.learning_rate).minimize(baseline_loss)
 
     def sample_trajectories(self, itr, env):
@@ -457,8 +455,11 @@ class Agent(object):
             # Hint #bl1: rescale the output from the nn_baseline to match the statistics
             # (mean and std) of the current batch of Q-values. (Goes with Hint
             # #bl2 in Agent.update_parameters.
-            raise NotImplementedError
-            b_n = None  # YOUR CODE HERE
+
+            b_n = self.sess.run(self.baseline_prediction, feed_dict={self.sy_ob_no: ob_no})
+            q_n = np.array(q_n)
+            b_n = np.array(b_n)
+            b_n = q_n.mean() + q_n.std * (b_n - b_n.mean()) / b_n.std()
             adv_n = q_n - b_n
         else:
             adv_n = q_n.copy()
@@ -528,9 +529,12 @@ class Agent(object):
             # targets to have mean zero and std=1. (Goes with Hint #bl1 in 
             # Agent.compute_advantage.)
 
-            # YOUR_CODE_HERE
-            raise NotImplementedError
-            target_n = None
+            target_n = (q_n - q_n.mean()) / q_n.std()
+
+            self.sess.run(self.baseline_update_op, feed_dict={
+                self.sy_ob_no: ob_no,
+                self.sy_target_n: target_n
+            })
 
             # ====================================================================================#
         #                           ----------PROBLEM 3----------
