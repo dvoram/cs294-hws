@@ -116,7 +116,6 @@ class Agent(object):
         else:
             sy_ac_na = tf.placeholder(shape=[None, self.ac_dim], name="ac", dtype=tf.float32)
 
-        # TODO: Not sure about the shape.
         sy_adv_n = tf.placeholder(shape=[None], name='adv', dtype=tf.float32)
         return sy_ob_no, sy_ac_na, sy_adv_n
 
@@ -149,8 +148,7 @@ class Agent(object):
                 pass in self.size for the 'size' argument.
         """
 
-        if self.discrete:
-            return build_mlp(
+        nn_output = build_mlp(
                 input_placeholder=sy_ob_no,
                 output_size=self.ac_dim,
                 scope='policy_forward_pass',
@@ -158,12 +156,14 @@ class Agent(object):
                 size=self.size,
                 output_activation=None
             )
+
+        if self.discrete:
+            sy_logits_na = nn_output
+            return sy_logits_na
         else:
-            # TODO: implement the continuous variant
-            raise NotImplementedError()
-            sy_mean = None
-            sy_logstd = None
-            return (sy_mean, sy_logstd)
+            sy_mean = nn_output
+            sy_logstd = tf.get_variable('logstd', self.ac_dim)
+            return sy_mean, sy_logstd
 
     # ========================================================================================#
     #                           ----------PROBLEM 2----------
@@ -199,7 +199,9 @@ class Agent(object):
             return dist.sample()
         else:
             sy_mean, sy_logstd = policy_parameters
-            raise NotImplementedError()
+            # dist = tf.distributions.Normal(loc=sy_mean, scale=sy_logstd)
+            # return dist.sample()
+            return sy_mean + tf.exp(sy_logstd) * tf.random_normal(tf.shape(sy_mean))
 
     # ========================================================================================#
     #                           ----------PROBLEM 2----------
@@ -233,8 +235,10 @@ class Agent(object):
             return tf.nn.sparse_softmax_cross_entropy_with_logits(labels=sy_ac_na, logits=sy_logits_na)
         else:
             sy_mean, sy_logstd = policy_parameters
-            # YOUR_CODE_HERE
-            raise NotImplementedError()
+            # https://en.wikipedia.org/wiki/Multivariate_normal_distribution
+            # Also https://www.tensorflow.org/api_docs/python/tf/distributions/Normal could be used.
+            # The normalization coefficient is omitted - is this correct?
+            return 0.5 * tf.reduce_sum(tf.square((sy_ac_na - sy_mean) / tf.exp(sy_logstd)), axis=1)
 
     def build_computation_graph(self):
         """
