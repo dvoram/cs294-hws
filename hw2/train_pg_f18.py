@@ -5,6 +5,7 @@ Adapted for CS294-112 Fall 2018 by Michael Chang and Soroush Nasiriany
 """
 import numpy as np
 import tensorflow as tf
+import tensorflow_probability as tfp
 import gym
 import logz
 import os
@@ -64,6 +65,11 @@ def setup_logger(logdir, locals_):
     args = inspect.getargspec(train_PG)[0]
     params = {k: locals_[k] if k in locals_ else None for k in args}
     logz.save_params(params)
+
+
+def normalize(values, mean=0., std=1., eps=1e-8):
+    values = (values - values.mean()) / (values.std() + eps)
+    return mean + (std + eps) * values
 
 
 # ============================================================================================#
@@ -236,9 +242,9 @@ class Agent(object):
             return tf.nn.sparse_softmax_cross_entropy_with_logits(labels=sy_ac_na, logits=sy_logits_na)
         else:
             sy_mean, sy_logstd = policy_parameters
-            # Also https://www.tensorflow.org/api_docs/python/tf/distributions/Normal could probably be used.
-            # TODO: The normalization coefficient is omitted - is this correct?
-            return 0.5 * tf.reduce_sum(tf.square((sy_ac_na - sy_mean) / tf.exp(sy_logstd)), axis=1)
+            # return 0.5 * tf.reduce_sum(tf.square((sy_ac_na - sy_mean) / tf.exp(sy_logstd)), axis=1)
+            dist = tfp.distributions.MultivariateNormalDiag(loc=sy_mean, scale_diag=tf.exp(sy_logstd))
+            return - dist.log_prob(sy_ac_na)
 
     def build_computation_graph(self):
         """
@@ -296,7 +302,7 @@ class Agent(object):
                 n_layers=self.n_layers,
                 size=self.size))
             self.sy_target_n = tf.placeholder(shape=(None,), dtype=tf.float32)
-            baseline_loss = tf.losses.mean_squared_error(labels=self.sy_target_n, predictions=self.baseline_prediction)
+            baseline_loss = tf.nn.l2_loss(self.sy_target_n - self.baseline_prediction)
             self.baseline_update_op = tf.train.AdamOptimizer(self.learning_rate).minimize(baseline_loss)
 
     def sample_trajectories(self, itr, env):
@@ -424,7 +430,7 @@ class Agent(object):
                 q_n.append(trajectory_reward)
 
         assert len(q_n) == sum([len(path) for path in re_n])
-        return q_n
+        return np.array(q_n)
 
     def compute_advantage(self, ob_no, q_n):
         """
@@ -457,9 +463,7 @@ class Agent(object):
             # #bl2 in Agent.update_parameters.
 
             b_n = self.sess.run(self.baseline_prediction, feed_dict={self.sy_ob_no: ob_no})
-            q_n = np.array(q_n)
-            b_n = np.array(b_n)
-            b_n = q_n.mean() + q_n.std * (b_n - b_n.mean()) / b_n.std()
+            b_n = normalize(b_n, mean=q_n.mean(), std=q_n.std())
             adv_n = q_n - b_n
         else:
             adv_n = q_n.copy()
@@ -494,7 +498,7 @@ class Agent(object):
             # On the next line, implement a trick which is known empirically to reduce variance
             # in policy gradient methods: normalize adv_n to have mean zero and std=1.
 
-            adv_n = (adv_n - adv_n.mean()) / adv_n.std()
+            adv_n = normalize(adv_n)
         return q_n, adv_n
 
     def update_parameters(self, ob_no, ac_na, q_n, adv_n):
@@ -529,7 +533,7 @@ class Agent(object):
             # targets to have mean zero and std=1. (Goes with Hint #bl1 in 
             # Agent.compute_advantage.)
 
-            target_n = (q_n - q_n.mean()) / q_n.std()
+            target_n = normalize(q_n)
 
             self.sess.run(self.baseline_update_op, feed_dict={
                 self.sy_ob_no: ob_no,
@@ -547,21 +551,18 @@ class Agent(object):
         # For debug purposes, you may wish to save the value of the loss function before
         # and after an update, and then log them below.
 
-        prev_loss = self.sess.run(self.loss, feed_dict={
+        feed_dict = {
             self.sy_ob_no: ob_no,
             self.sy_ac_na: ac_na,
             self.sy_adv_n: adv_n
-        })
+        }
 
-        res = self.sess.run([self.loss, self.update_op], feed_dict={
-            self.sy_ob_no: ob_no,
-            self.sy_ac_na: ac_na,
-            self.sy_adv_n: adv_n
-        })
+        loss_before = self.sess.run(self.loss, feed_dict=feed_dict)
+        self.sess.run(self.update_op, feed_dict=feed_dict)
+        loss_after = self.sess.run(self.loss, feed_dict=feed_dict)
 
-        new_loss = res[0]
-
-        print(f'Step: loss {round(prev_loss, 4)} -> {round(new_loss, 4)}')
+        logz.log_tabular('LossBeforeUpdate', loss_before)
+        logz.log_tabular('LossAfterUpdate', loss_after)
 
 
 def train_PG(
