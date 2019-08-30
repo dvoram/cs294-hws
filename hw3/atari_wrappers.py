@@ -1,5 +1,5 @@
-#import sys
-#sys.path.remove('/opt/ros/kinetic/lib/python2.7/dist-packages')
+# import sys
+# sys.path.remove('/opt/ros/kinetic/lib/python2.7/dist-packages')
 
 import cv2
 import numpy as np
@@ -13,11 +13,11 @@ class NoopResetEnv(gym.Wrapper):
         """Sample initial states by taking random number of no-ops on reset.
         No-op is assumed to be action 0.
         """
-        super(NoopResetEnv, self).__init__(env)
+        super().__init__(env)
         self.noop_max = noop_max
         assert env.unwrapped.get_action_meanings()[0] == 'NOOP'
 
-    def _reset(self):
+    def reset(self):
         """ Do no-op action for a number of steps in [1, noop_max]."""
         self.env.reset()
         noops = np.random.randint(1, self.noop_max + 1)
@@ -25,30 +25,32 @@ class NoopResetEnv(gym.Wrapper):
             obs, _, _, _ = self.env.step(0)
         return obs
 
+
 class FireResetEnv(gym.Wrapper):
     def __init__(self, env=None):
         """Take action on reset for environments that are fixed until firing."""
-        super(FireResetEnv, self).__init__(env)
+        super().__init__(env)
         assert env.unwrapped.get_action_meanings()[1] == 'FIRE'
         assert len(env.unwrapped.get_action_meanings()) >= 3
 
-    def _reset(self):
+    def reset(self):
         self.env.reset()
         obs, _, _, _ = self.env.step(1)
         obs, _, _, _ = self.env.step(2)
         return obs
+
 
 class EpisodicLifeEnv(gym.Wrapper):
     def __init__(self, env=None):
         """Make end-of-life == end-of-episode, but only reset on true game over.
         Done by DeepMind for the DQN and co. since it helps value estimation.
         """
-        super(EpisodicLifeEnv, self).__init__(env)
+        super().__init__(env)
         self.lives = 0
-        self.was_real_done  = True
+        self.was_real_done = True
         self.was_real_reset = False
 
-    def _step(self, action):
+    def step(self, action):
         obs, reward, done, info = self.env.step(action)
         self.was_real_done = done
         # check current lives, make loss of life terminal,
@@ -62,7 +64,7 @@ class EpisodicLifeEnv(gym.Wrapper):
         self.lives = lives
         return obs, reward, done, info
 
-    def _reset(self):
+    def reset(self):
         """Reset only when lives are exhausted.
         This way all states are still reachable even though lives are episodic,
         and the learner need not know about any of this behind-the-scenes.
@@ -77,15 +79,16 @@ class EpisodicLifeEnv(gym.Wrapper):
         self.lives = self.env.unwrapped.ale.lives()
         return obs
 
+
 class MaxAndSkipEnv(gym.Wrapper):
     def __init__(self, env=None, skip=4):
         """Return only every `skip`-th frame"""
-        super(MaxAndSkipEnv, self).__init__(env)
+        super().__init__(env)
         # most recent raw observations (for max pooling across time steps)
         self._obs_buffer = deque(maxlen=2)
-        self._skip       = skip
+        self._skip = skip
 
-    def _step(self, action):
+    def step(self, action):
         total_reward = 0.0
         done = None
         for _ in range(self._skip):
@@ -99,37 +102,41 @@ class MaxAndSkipEnv(gym.Wrapper):
 
         return max_frame, total_reward, done, info
 
-    def _reset(self):
+    def reset(self):
         """Clear past frame buffer and init. to first obs. from inner env."""
         self._obs_buffer.clear()
         obs = self.env.reset()
         self._obs_buffer.append(obs)
         return obs
 
+
 def _process_frame84(frame):
     img = np.reshape(frame, [210, 160, 3]).astype(np.float32)
     img = img[:, :, 0] * 0.299 + img[:, :, 1] * 0.587 + img[:, :, 2] * 0.114
-    resized_screen = cv2.resize(img, (84, 110),  interpolation=cv2.INTER_LINEAR)
+    resized_screen = cv2.resize(img, (84, 110), interpolation=cv2.INTER_LINEAR)
     x_t = resized_screen[18:102, :]
     x_t = np.reshape(x_t, [84, 84, 1])
     return x_t.astype(np.uint8)
 
+
 class ProcessFrame84(gym.Wrapper):
     def __init__(self, env=None):
-        super(ProcessFrame84, self).__init__(env)
+        super().__init__(env)
         self.observation_space = spaces.Box(low=0, high=255, shape=(84, 84, 1))
 
-    def _step(self, action):
+    def step(self, action):
         obs, reward, done, info = self.env.step(action)
         return _process_frame84(obs), reward, done, info
 
-    def _reset(self):
+    def reset(self):
         return _process_frame84(self.env.reset())
 
+
 class ClippedRewardsWrapper(gym.Wrapper):
-    def _step(self, action):
+    def step(self, action):
         obs, reward, done, info = self.env.step(action)
         return obs, np.sign(reward), done, info
+
 
 def wrap_deepmind_ram(env):
     env = EpisodicLifeEnv(env)
@@ -139,6 +146,7 @@ def wrap_deepmind_ram(env):
         env = FireResetEnv(env)
     env = ClippedRewardsWrapper(env)
     return env
+
 
 def wrap_deepmind(env):
     assert 'NoFrameskip' in env.spec.id

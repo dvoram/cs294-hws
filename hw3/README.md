@@ -10,6 +10,7 @@ Dependencies:
  * Box2D==**2.3.2**
  * OpenCV
  * ffmpeg
+ * Swig
 
 Before doing anything, first replace `gym/envs/box2d/lunar_lander.py` with the provided `lunar_lander.py` file.
 
