@@ -3,16 +3,9 @@ import time
 import pickle
 import sys
 import gym.spaces
-import itertools
-import numpy as np
-import random
 import tensorflow as tf
-import tensorflow.contrib.layers as layers
 from collections import namedtuple
 from dqn_utils import *
-from run_dqn_atari import atari_model as atari_model_img
-from run_dqn_ram import atari_model as atari_model_ram
-from run_dqn_lander import lander_model
 
 OptimizerSpec = namedtuple("OptimizerSpec", ["constructor", "kwargs", "lr_schedule"])
 
@@ -162,22 +155,28 @@ class QLearner(object):
 
         ######
 
-        def q_func(obs, scope):
-            if lander:
-                model = lander_model
-            else:
-                model = atari_model_ram if input_shape == self.env.observation_space.shape else atari_model_img
+        def select_action(q_values, action):
+            return tf.reduce_sum(q_values * tf.one_hot(action, self.num_actions), axis=1)
 
-            return model(obs, self.num_actions, scope=scope, reuse=False)
+        # Action value prediction
+        self.action_values = q_func(obs_t_float, self.num_actions, scope='q_func', reuse=False)
+        action_value = select_action(self.action_values, self.act_t_ph)
 
-        value_tp = tf.reduce_max(q_func(obs_tp1_float, scope='target_q_func'), axis=1)
-        target_action_value = self.rew_t_ph + gamma * (1 - self.done_mask_ph) * value_tp
+        # Target action-value
+        action_values_next = q_func(obs_tp1_float, self.num_actions, scope='target_q_func', reuse=False)
 
-        self.action_values = q_func(obs_t_float, scope='q_func')
+        if not double_q:
+            # Select the best action value
+            best_action_next_ix = tf.argmax(action_values_next, axis=1)
+        else:
+            # Select the best action value, but according to the prediction of action values given by the other net
+            action_values_next_alt = q_func(obs_tp1_float, self.num_actions, scope='q_func', reuse=True)
+            best_action_next_ix = tf.argmax(action_values_next_alt, axis=1)
 
-        action_value = tf.reduce_sum(tf.multiply(self.action_values, tf.one_hot(self.act_t_ph, self.num_actions)),
-                                     axis=1)
+        target_action_value = self.rew_t_ph + gamma * (1 - self.done_mask_ph) * select_action(action_values_next,
+                                                                                              best_action_next_ix)
 
+        # Total loss
         self.total_error = tf.reduce_mean(huber_loss(action_value - target_action_value))
 
         q_func_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='q_func')
